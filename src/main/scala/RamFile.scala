@@ -1,12 +1,25 @@
 package xyz.hyperreal.ramfile
 
+import collection.mutable.HashMap
+
 import java.io.{IOException, Closeable, DataInput, DataOutput}
 import java.nio.ByteBuffer
 
 
-class RamFile extends Closeable {// with DataInput with DataOutput {
-	val data = new ExpandableByteBuffer
-	var closed = false
+object RamFile {
+	private val files = new HashMap[String, ExpandableByteBuffer]
+}
+
+class RamFile( filename: String ) extends Closeable with DataInput with DataOutput {
+	var data =
+		RamFile.files.get( filename ) match {
+			case Some( buf ) => buf
+			case None =>
+				val buf = new ExpandableByteBuffer
+				
+				RamFile.files(filename) = buf
+				buf
+		}
 
 	private def eof = getFilePointer == length
 	
@@ -16,23 +29,17 @@ class RamFile extends Closeable {// with DataInput with DataOutput {
 		else
 			seek( getFilePointer - 1 )
 			
-	def close {
-		if (closed)
-			throw new IOException( "closed" )
-		else
-			closed = true
-	}
+	def close = data = null
 	
-	def length: Long = data.size
+	def length = data.size.toLong
 	
-	def getFilePointer: Long = data.buffer.position
+	def getFilePointer = data.buffer.position.toLong
 	
-	def read = {
+	def read =
 		if (eof)
 			-1
 		else
 			readByte&0xFF
-	}
 	
 	def readBoolean =
 		readByte match {
@@ -64,7 +71,7 @@ class RamFile extends Closeable {// with DataInput with DataOutput {
 	def readFully( b: Array[Byte] ) {readFully( b, 0, b.length )}
 	
 	def readFully( b: Array[Byte], off: Int, len: Int ) {
-		data.getting( off + len )
+		data.getting( len )
 		data.buffer.get( b, off, len )
 	}
 	
@@ -74,7 +81,38 @@ class RamFile extends Closeable {// with DataInput with DataOutput {
 	}
 	
 	def readLine = {
-		""
+		val buf = new StringBuilder
+		
+		def readnext: String = {
+			read match {
+				case -1 =>
+					if (buf isEmpty)
+						null
+					else
+						buf.toString
+				case c =>
+					c.toChar match {
+						case '\n' =>
+							buf.toString
+						case '\r' =>
+							if (!eof)
+								if (read.toChar != '\n')
+									back
+								
+								buf.toString
+						case ch =>
+							buf += ch
+							readnext
+					}
+			}
+		}
+		
+		readnext
+	}
+	
+	def readLong = {
+		data.getting( 8 )
+		data.buffer.getLong
 	}
 	
 	def readShort = {
@@ -82,10 +120,9 @@ class RamFile extends Closeable {// with DataInput with DataOutput {
 		data.buffer.getShort
 	}
 	
-	def readUnsignedShort = {
-		data.getting( 2 )
-		data.buffer.getShort&0xFFFF
-	}
+	def readUnsignedByte = readByte&0xFF
+	
+	def readUnsignedShort = readShort&0xFFFF
 	
 	def readUTF = {
 		val len = readUnsignedShort
@@ -102,9 +139,20 @@ class RamFile extends Closeable {// with DataInput with DataOutput {
 	
 	def setLength( l: Long ) = data.size = l.asInstanceOf[Int]
 	
-	def write( b: Array[Byte] ) {
-		data.putting( b.length )
-		data.buffer.put( b )
+	def skipBytes( n: Int ) =
+		if (n > 0) {
+			val skipped = (getFilePointer + n) min (length - getFilePointer)
+			
+			seek( skipped )
+			skipped.toInt
+		} else
+			0
+	
+	def write( b: Array[Byte] ) = write( b, 0, b.length )
+	
+	def write( b: Array[Byte], off: Int, len: Int ) {
+		data.putting( len )
+		data.buffer.put( b, off, len )
 	}
 	
 	def write( b: Int ) = writeByte( b )
@@ -116,9 +164,37 @@ class RamFile extends Closeable {// with DataInput with DataOutput {
 		data.buffer.put( b.asInstanceOf[Byte] )
 	}
 	
+	def writeBytes( s: String ) = write( s.toCharArray map (c => c.toByte) )
+	
+	def writeChar( v: Char ) {
+		data.putting( 2 )
+		data.buffer.putChar( v )
+	}
+	
+	def writeChar( v: Int ) = writeChar( v.toChar )
+	
+	def writeChars( s: String ) =
+		for (c <- s)
+			writeChar( c )
+	
+	def writeDouble( v: Double ) {
+		data.putting( 8 )
+		data.buffer.putDouble( v )
+	}
+	
+	def writeFloat( v: Float ) {
+		data.putting( 4 )
+		data.buffer.putFloat( v )
+	}
+	
 	def writeInt( v: Int ) {
 		data.putting( 4 )
 		data.buffer.putInt( v )
+	}
+	
+	def writeLong( v: Long ) {
+		data.putting( 8 )
+		data.buffer.putLong( v )
 	}
 	
 	def writeShort( v: Int ) {
