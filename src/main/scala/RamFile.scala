@@ -1,13 +1,19 @@
 package xyz.hyperreal.ramfile
 
-import collection.mutable.HashMap
+import collection.immutable.TreeMap
 
 import java.io.{IOException, Closeable, DataInput, DataOutput}
 import java.nio.ByteBuffer
 
 
 object RamFile {
-	private val files = new HashMap[String, ExpandableByteBuffer]
+	private var files = new TreeMap[String, ExpandableByteBuffer]
+	
+	def list = files.keys.toList
+	
+	def exists( filename: String ) = RamFile.list exists (f => f == filename)
+	
+	def delete( filename: String ) = files -= filename
 }
 
 class RamFile( filename: String ) extends Closeable with DataInput with DataOutput {
@@ -17,7 +23,7 @@ class RamFile( filename: String ) extends Closeable with DataInput with DataOutp
 			case None =>
 				val buf = new ExpandableByteBuffer
 				
-				RamFile.files(filename) = buf
+				RamFile.files += filename -> buf
 				buf
 		}
 
@@ -207,5 +213,42 @@ class RamFile( filename: String ) extends Closeable with DataInput with DataOutp
 		
 		writeShort( b.length )
 		write( b )
+	}
+	
+	def dump {
+		val cur = getFilePointer
+		val width = 16
+		
+		seek( 0 )
+		
+		def printByte( b: Int ) = print( "%02x ".format(b&0xFF).toUpperCase )
+		
+		def printChar( c: Int ) = print( if (' ' <= c && c <= '~') c.asInstanceOf[Char] else '.' )
+		
+		for (line <- 0L until length by width) {
+			printf( s"%10x  ", line )
+			
+			val mark = getFilePointer
+			
+			for (i <- line until ((line + width) min length)) {
+				if (i%16 == 8)
+					print( ' ' )
+					
+				printByte( readByte )
+			}
+			
+			val bytes = (getFilePointer - mark).asInstanceOf[Int]
+			
+			print( " "*((width - bytes)*3 + 1 + (if (bytes < 9) 1 else 0)) )
+			
+			seek( mark )
+			
+			for (i <- line until ((line + width) min length))
+				printChar( readByte.asInstanceOf[Int] )
+				
+			println
+		}
+		
+		seek( cur )
 	}
 }

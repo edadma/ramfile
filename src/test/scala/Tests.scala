@@ -6,6 +6,21 @@ import prop.PropertyChecks
 
 class Tests extends FreeSpec with PropertyChecks with Matchers {
 	
+	"object methods" in {
+		val file1 = new RamFile( "file" )
+		
+		RamFile.exists( "file" ) shouldBe true
+		file1.writeInt( 123 )
+		
+		val file2 = new RamFile( "file" )
+		
+		file2.seek( 0 )
+		file2.readInt shouldBe 123
+		
+		RamFile.delete( "file" )
+		RamFile.exists( "file" ) shouldBe false
+	}
+	
 	"lines" in {
 		val file = new RamFile( "lines" )
 		
